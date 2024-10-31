@@ -1,6 +1,8 @@
 # app/main.py
 from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi.responses import Response
 from typing import List, Optional
+import mimetypes
 from datetime import datetime
 import logging
 
@@ -44,4 +46,36 @@ async def get_emails(
         )
     except Exception as e:
         logger.error(f"Failed to retrieve emails: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/emails/{message_id}/attachments/{filename}")
+async def get_attachment(
+    message_id: str,
+    filename: str,
+    mailbox: str = Query("INBOX", description="Mailbox containing the email"),
+    settings: Settings = Depends(get_settings)
+):
+    """Download a specific attachment from an email"""
+    try:
+        imap_service = ImapService(settings)
+        result = await imap_service.get_attachment(message_id, filename, mailbox)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+            
+        content, filename, content_type = result
+        
+        # Ensure we have a content type
+        if not content_type or content_type == "application/octet-stream":
+            content_type, _ = mimetypes.guess_type(filename)
+            
+        return Response(
+            content=content,
+            media_type=content_type or "application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+        
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
